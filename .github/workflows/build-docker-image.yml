@@ -11,7 +11,7 @@ on:
 env:
   # 设置你的 Docker Hub 镜像名称 (格式: 用户名/仓库名)
   # 这里默认使用你的 Docker Hub 用户名 + 仓库名，你也可以硬编码修改
-  DOCKER_IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/vps-xray-argo
+  DOCKER_IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/vps-singbox-argo
 
 jobs:
   build-and-push:
