@@ -2,7 +2,7 @@
 
 这是一个专为 **VPS 环境** 打造的**全能、极速**代理部署方案。
 
-本项目已从 Xray 内核升级为 **Sing-box** 内核，集成了目前公认速度最快的 **Hysteria2** 和 **Tuic v5** 协议（基于 UDP），同时保留了稳定的 **Reality** (TCP) 和 **Cloudflare Argo Tunnel** (隧道)。
+本项目以 **Sing-box** 内核，集成了目前公认速度最快的 **Hysteria2** 和 **Tuic v5** 协议（基于 UDP），同时保留了稳定的 **Reality** (TCP) 和 **Cloudflare Argo Tunnel** (隧道)。
 
 ---
 
