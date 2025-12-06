@@ -2,10 +2,10 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ "vps-singbox-argo" ]
+    branches: [ "main" ]
     tags: [ "v*" ]
   pull_request:
-    branches: [ "vps-singbox-argo" ]
+    branches: [ "main" ]
   workflow_dispatch: # 允许手动点击运行
 
 env:
