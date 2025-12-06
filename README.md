@@ -50,11 +50,11 @@ docker run --rm ghcr.io/xtls/xray-core:latest x25519
 2.  进入你的 Tunnel 配置 -> **Public Hostname**。
 3.  添加或修改以下 **3 条规则** (假设域名是 `vps.example.com`)：
 
-| Subdomain | Domain | Path | Service Type | Service URL | 说明 |
+| 子域 | 域名 | 路径 | 服务 类型 | 服务 URL | 说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `vps` | `example.com` | **vmess** | HTTP | **`localhost:10001`** | VMess 专用 (注意是10001) |
-| `vps` | `example.com` | **trojan** | HTTP | **`localhost:10002`** | Trojan 专用 (注意是10002) |
-| `vps` | `example.com` | *(留空)* | HTTP | `localhost:8080` | 默认兜底 |
+| `vps-singbox-argo` | `example.com` | **vmess** | HTTP | HTTP | **`localhost:10001`** | VMess 专用 (注意是10001) |
+| `vps-singbox-argo` | `example.com` | **trojan** | HTTP | **`localhost:10002`** | Trojan 专用 (注意是10002) |
+| `vps-singbox-argo` | `example.com` | *(留空)* | HTTP | `localhost:8080` | 默认兜底 |
 
 ---
 
