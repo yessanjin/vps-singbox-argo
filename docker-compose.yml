@@ -2,8 +2,7 @@ version: '3.8'
 
 services:
   vps-proxy:
-    # 替换为你构建的或官方的镜像
-    image: ghcr.io/eooce/nodejs-argo:latest
+    image: ghcr.io/yessanjin/vps-singbox-argo:latest
     container_name: vps-proxy
     restart: always
     ports:
