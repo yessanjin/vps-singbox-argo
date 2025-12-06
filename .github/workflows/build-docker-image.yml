@@ -5,7 +5,7 @@ on:
     branches: [ "vps-singbox-argo" ]
     tags: [ "v*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "vps-singbox-argo" ]
   workflow_dispatch: # 允许手动点击运行
 
 env:
