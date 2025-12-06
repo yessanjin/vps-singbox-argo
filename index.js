@@ -10,15 +10,12 @@ const execAsync = promisify(require('child_process').exec);
 
 // --- 环境变量配置 ---
 const PORT = process.env.PORT || 3000;
-const XRAY_PORT = process.env.XRAY_PORT || 8000;
+const SB_PORT = process.env.XRAY_PORT || 8000; // Sing-box 监听端口
 const UUID = process.env.UUID || '9afd1229-b893-40c1-84dd-51e7ce204913';
 const ARGO_DOMAIN = process.env.ARGO_DOMAIN || '';
 const ARGO_AUTH = process.env.ARGO_AUTH || '';
 const CFIP = process.env.CFIP || 'www.visa.com.sg';
 const NAME = process.env.NAME || 'VPS';
-
-// --- 🔥 新增：自定义订阅路径 ---
-// 如果 docker-compose 里不填，默认还是 'sub'
 const SUB_PATH = process.env.SUB_PATH || 'sub';
 
 // --- REALITY 配置 ---
@@ -34,116 +31,129 @@ if (!fs.existsSync(FILE_PATH)) {
   fs.mkdirSync(FILE_PATH, { recursive: true });
 }
 
-const xrayPath = path.join(FILE_PATH, 'xray');
+const singboxPath = path.join(FILE_PATH, 'sing-box'); // 核心改名
 const cloudflaredPath = path.join(FILE_PATH, 'cloudflared');
 const subPath = path.join(FILE_PATH, 'sub.txt');
 const configPath = path.join(FILE_PATH, 'config.json');
 
 let generatedPublicKey = "";
 
-// 根路径提示修改
 app.get("/", (req, res) => {
-  res.send(`VPS Node Server Running... Access /${SUB_PATH} to get links.`);
+  res.send(`Sing-box Node Server Running... Access /${SUB_PATH} to get links.`);
 });
 
 function getArch() {
   const arch = os.arch();
-  if (arch === 'arm64' || arch === 'aarch64') return 'arm64-v8a';
-  return '64';
-}
-
-function getCloudflaredArch() {
-  const arch = os.arch();
   if (arch === 'arm64' || arch === 'aarch64') return 'arm64';
-  return 'amd64';
+  return 'amd64'; // Sing-box 命名习惯: amd64
 }
 
+// 下载文件
 async function downloadFile(url, dest) {
   console.log(`Downloading: ${url}`);
   await execAsync(`curl -L -o "${dest}" "${url}"`);
   console.log(`Downloaded to ${dest}`);
 }
 
+// 获取 Reality 密钥 (调用 sing-box generate)
 async function getRealityKeys() {
   if (REALITY_PRIVATE_KEY) {
     return { privateKey: REALITY_PRIVATE_KEY, publicKey: "" }; 
   }
   try {
-    const { stdout } = await execAsync(`"${xrayPath}" x25519`);
-    const privateMatch = stdout.match(/Private key: (.+)/);
-    const publicMatch = stdout.match(/Public key: (.+)/);
+    // Sing-box 生成密钥命令
+    const { stdout } = await execAsync(`"${singboxPath}" generate reality-keypair`);
+    // 输出: PrivateKey: xxx \n PublicKey: yyy
+    const privateMatch = stdout.match(/PrivateKey: (.+)/);
+    const publicMatch = stdout.match(/PublicKey: (.+)/);
     if (privateMatch && publicMatch) {
       return { privateKey: privateMatch[1].trim(), publicKey: publicMatch[1].trim() };
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Key gen failed:", e);
+  }
   return { privateKey: "", publicKey: "" };
 }
 
-// --- Xray 配置 ---
-async function generateXrayConfig(privateKey) {
+// --- 生成 Sing-box 配置文件 (完全重写) ---
+async function generateSingboxConfig(privateKey) {
   const config = {
-    log: { loglevel: "warning" },
+    log: {
+      level: "warn",
+      timestamp: true
+    },
     inbounds: [
       // 1. Reality 主入口 (公网 8000)
       {
-        port: parseInt(XRAY_PORT),
-        listen: "0.0.0.0",
-        protocol: "vless",
-        settings: {
-          clients: [{ id: UUID, flow: "xtls-rprx-vision" }],
-          decryption: "none"
-        },
-        streamSettings: {
-          network: "tcp",
-          security: "reality",
-          realitySettings: {
-            show: false,
-            dest: REALITY_DEST,
-            xver: 0,
-            serverNames: [REALITY_SERVER_NAME],
-            privateKey: privateKey,
-            shortIds: [REALITY_SHORT_ID]
+        type: "vless",
+        tag: "vless-in",
+        listen: "::",
+        listen_port: parseInt(SB_PORT),
+        users: [
+          {
+            uuid: UUID,
+            flow: "xtls-rprx-vision"
+          }
+        ],
+        tls: {
+          enabled: true,
+          server_name: REALITY_SERVER_NAME,
+          reality: {
+            enabled: true,
+            handshake: {
+              server: REALITY_DEST,
+              server_port: 443
+            },
+            private_key: privateKey,
+            short_id: [REALITY_SHORT_ID]
           }
         }
       },
-      // 2. Argo 备用入口 (本地 8080)
+      // 2. Argo 内部路由入口 (本地 8080) - 兜底
       {
-        port: INTERNAL_ARGO_PORT,
+        type: "vless",
+        tag: "argo-in",
         listen: "127.0.0.1",
-        protocol: "vless",
-        settings: {
-          clients: [{ id: UUID }],
-          decryption: "none",
-          fallbacks: [
-            { path: "/vmess", dest: 8001 },
-            { path: "/trojan", dest: 8002 }
-          ]
-        },
-        streamSettings: { network: "tcp", security: "none" },
-        sniffing: { enabled: true, destOverride: ["http", "tls"] }
+        listen_port: INTERNAL_ARGO_PORT,
+        users: [{ uuid: UUID }],
+        // 开启 sniff 来识别流量
+        sniff: true, 
+        sniff_override_destination: true
       },
-      // 3. VMess 独立入口 (本地 8001)
+      // 3. VMess (本地 8001)
       {
-        port: 8001,
+        type: "vmess",
+        tag: "vmess-in",
         listen: "127.0.0.1",
-        protocol: "vmess",
-        settings: { clients: [{ id: UUID, alterId: 0 }] },
-        streamSettings: { network: "ws", wsSettings: { path: "/vmess" } },
-        sniffing: { enabled: true, destOverride: ["http", "tls"] }
+        listen_port: 8001,
+        users: [{ uuid: UUID, alterId: 0 }],
+        transport: {
+          type: "ws",
+          path: "/vmess"
+        }
       },
-      // 4. Trojan 独立入口 (本地 8002)
+      // 4. Trojan (本地 8002)
       {
-        port: 8002,
+        type: "trojan",
+        tag: "trojan-in",
         listen: "127.0.0.1",
-        protocol: "trojan",
-        settings: { clients: [{ password: UUID }] },
-        streamSettings: { network: "ws", wsSettings: { path: "/trojan" } },
-        sniffing: { enabled: true, destOverride: ["http", "tls"] }
+        listen_port: 8002,
+        users: [{ password: UUID }],
+        transport: {
+          type: "ws",
+          path: "/trojan"
+        }
       }
     ],
     outbounds: [
-      { protocol: "freedom", tag: "direct" },
-      { protocol: "blackhole", tag: "block" }
+      {
+        type: "direct",
+        tag: "direct"
+      },
+      {
+        type: "block",
+        tag: "block"
+      }
     ]
   };
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -159,17 +169,25 @@ async function getPublicIP() {
 }
 
 async function installAndRun() {
-  if (!fs.existsSync(xrayPath)) {
+  // 1. 安装 Sing-box (下载 tar.gz 并解压)
+  if (!fs.existsSync(singboxPath)) {
     const arch = getArch();
-    const zipPath = path.join(FILE_PATH, 'xray.zip');
-    await downloadFile(`https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${arch}.zip`, zipPath);
-    await execAsync(`unzip -o "${zipPath}" -d "${FILE_PATH}"`);
-    await execAsync(`chmod +x "${xrayPath}"`);
-    fs.unlinkSync(zipPath);
+    // 使用 SagerNet 官方源
+    const url = `https://github.com/SagerNet/sing-box/releases/download/v1.8.0/sing-box-1.8.0-linux-${arch}.tar.gz`;
+    const tarPath = path.join(FILE_PATH, 'sing-box.tar.gz');
+    
+    await downloadFile(url, tarPath);
+    console.log("Extracting Sing-box...");
+    // 解压 tar.gz, --strip-components=1 去掉外层文件夹
+    await execAsync(`tar -xzf "${tarPath}" -C "${FILE_PATH}" --wildcards "*/sing-box" --strip-components=1`);
+    await execAsync(`chmod +x "${singboxPath}"`);
+    fs.unlinkSync(tarPath);
   }
+
+  // 2. 安装 Cloudflared (保持不变)
   if (!fs.existsSync(cloudflaredPath)) {
-    const cfArch = getCloudflaredArch();
-    await downloadFile(`https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${cfArch}`, cloudflaredPath);
+    const arch = os.arch() === 'arm64' ? 'arm64' : 'amd64';
+    await downloadFile(`https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}`, cloudflaredPath);
     await execAsync(`chmod +x "${cloudflaredPath}"`);
   }
 
@@ -180,15 +198,16 @@ async function installAndRun() {
     generatedPublicKey = keys.publicKey;
   }
 
-  await generateXrayConfig(privateKey);
-  console.log(`Starting Xray...`);
-  exec(`nohup "${xrayPath}" -c "${configPath}" > /dev/null 2>&1 &`);
+  // 3. 运行 Sing-box
+  await generateSingboxConfig(privateKey);
+  console.log(`Starting Sing-box...`);
+  // Sing-box 运行命令
+  exec(`nohup "${singboxPath}" run -c "${configPath}" > /dev/null 2>&1 &`);
 
-  // --- Cloudflared 启动逻辑 ---
+  // 4. 运行 Cloudflared (路由逻辑不变)
   let argoCmd;
   if (ARGO_AUTH && ARGO_DOMAIN) {
      if (ARGO_AUTH.includes('TunnelSecret')) {
-        // 固定隧道：使用 Path 路由
         fs.writeFileSync(path.join(FILE_PATH, 'tunnel.json'), ARGO_AUTH);
         const tunnelYml = `
 tunnel: ${JSON.parse(ARGO_AUTH).TunnelID}
@@ -218,7 +237,7 @@ ingress:
   setTimeout(generateSubscription, 10000);
 }
 
-// 生成订阅
+// 生成订阅 (逻辑完全通用，不需要变，因为客户端连接参数是一样的)
 async function generateSubscription() {
   const publicIP = await getPublicIP();
   let domain = ARGO_DOMAIN;
@@ -233,14 +252,14 @@ async function generateSubscription() {
   const publicKey = process.env.REALITY_PUBLIC_KEY || generatedPublicKey;
   const nodes = [];
   
+  // Sing-box 的 Reality 节点链接格式和 Xray 是一样的
   if (publicKey) {
-    nodes.push(`vless://${UUID}@${publicIP}:${XRAY_PORT}?security=reality&encryption=none&pbk=${publicKey}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SERVER_NAME}&sid=${REALITY_SHORT_ID}#${encodeURIComponent(NAME + "-Reality-Vision")}`);
+    nodes.push(`vless://${UUID}@${publicIP}:${SB_PORT}?security=reality&encryption=none&pbk=${publicKey}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SERVER_NAME}&sid=${REALITY_SHORT_ID}#${encodeURIComponent(NAME + "-Reality-Vision")}`);
   }
 
   if (domain) {
       const vmessArgo = { v: "2", ps: `${NAME}-Argo-VMESS`, add: CFIP, port: "443", id: UUID, aid: "0", scy: "auto", net: "ws", type: "none", host: domain, path: "/vmess", tls: "tls", sni: domain };
       nodes.push(`vmess://${Buffer.from(JSON.stringify(vmessArgo)).toString('base64')}`);
-      
       nodes.push(`trojan://${UUID}@${CFIP}:443?security=tls&sni=${domain}&type=ws&host=${domain}&path=%2Ftrojan#${encodeURIComponent(NAME + "-Argo-Trojan")}`);
   }
 
@@ -248,13 +267,12 @@ async function generateSubscription() {
   console.log("Subscription generated.");
 }
 
-// 🔥 使用动态变量 SUB_PATH
 app.get(`/${SUB_PATH}`, (req, res) => {
     if (fs.existsSync(subPath)) res.send(fs.readFileSync(subPath, 'utf8'));
     else res.status(503).send("Initializing...");
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}. Subscription path: /${SUB_PATH}`);
+  console.log(`Server running on port ${PORT}`);
   installAndRun();
 });
