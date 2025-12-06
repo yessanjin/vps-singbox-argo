@@ -2,27 +2,33 @@ version: '3.8'
 
 services:
   vps-proxy:
+    # 替换为你构建的或官方的镜像
     image: ghcr.io/eooce/nodejs-argo:latest
     container_name: vps-proxy
     restart: always
     ports:
-      - "3000:3000/tcp"  # 订阅
-      - "8000:8000/tcp"  # Reality (TCP)
-      - "8000:8000/udp"  # Hysteria2 (UDP) ✅
-      - "8001:8001/udp"  # Tuic v5 (UDP)   ✅
+      - "3000:3000/tcp"  # 订阅服务
+      - "8000:8000/tcp"  # Reality 直连
+      - "8000:8000/udp"  # Hysteria2 (必须暴露UDP)
+      - "8001:8001/udp"  # Tuic v5 (必须暴露UDP)
+    
     environment:
-      # --- 鉴权 ---
-      - UUID=9afd1229-b893-40c1-84dd-51e7ce204913
-      - SUB_PATH=my-secret-sub
+      # --- 🔑 核心鉴权 ---
+      - UUID=9afd1229-b893-40c1-84dd-51e7ce204913   # ⚠️ 修改这里！
+      - SUB_PATH=my-secret-token-123                # ⚠️ 自定义订阅路径，防止被扫
       
-      # --- Reality 配置 ---
-      - REALITY_PRIVATE_KEY=xxxxxxxxxxxx
-      - REALITY_PUBLIC_KEY=xxxxxxxxxxxxx
+      # --- 💎 REALITY 配置 (见第一步) ---
+      - REALITY_PRIVATE_KEY=xxxxxxxxxxxxxxxxxxxxxx
+      - REALITY_PUBLIC_KEY=xxxxxxxxxxxxxxxxxxxxxxx
+      - REALITY_DEST=www.apple.com:443
+      - REALITY_SERVER_NAME=www.apple.com
       
-      # --- Argo 配置 ---
-      - ARGO_AUTH=eyJhIjoi...
-      - ARGO_DOMAIN=vps.example.com
+      # --- ☁️ Argo 固定隧道配置 ---
+      - ARGO_AUTH=eyJhIjoi...                       # ⚠️ 填入 Tunnel Token
+      - ARGO_DOMAIN=vps.example.com                 # ⚠️ 填入 CF 后台设置的域名
       
       # --- 基础配置 ---
+      - PORT=3000
       - XRAY_PORT=8000
       - NAME=VPS
+      - CFIP=www.visa.com.sg
