@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  vps-proxy:
+    image: ghcr.io/eooce/nodejs-argo:latest
+    container_name: vps-proxy
+    restart: always
+    ports:
+      - "3000:3000/tcp"  # 订阅
+      - "8000:8000/tcp"  # Reality (TCP)
+      - "8000:8000/udp"  # Hysteria2 (UDP) ✅
+      - "8001:8001/udp"  # Tuic v5 (UDP)   ✅
+    environment:
+      # --- 鉴权 ---
+      - UUID=9afd1229-b893-40c1-84dd-51e7ce204913
+      - SUB_PATH=my-secret-sub
+      
+      # --- Reality 配置 ---
+      - REALITY_PRIVATE_KEY=xxxxxxxxxxxx
+      - REALITY_PUBLIC_KEY=xxxxxxxxxxxxx
+      
+      # --- Argo 配置 ---
+      - ARGO_AUTH=eyJhIjoi...
+      - ARGO_DOMAIN=vps.example.com
+      
+      # --- 基础配置 ---
+      - XRAY_PORT=8000
+      - NAME=VPS
